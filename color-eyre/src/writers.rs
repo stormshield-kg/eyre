@@ -160,7 +160,11 @@ where
 }
 
 #[cfg(feature = "capture-spantrace")]
-pub(crate) struct FormattedSpanTrace<'a>(pub(crate) &'a SpanTrace);
+pub(crate) struct FormattedSpanTrace<'a> {
+    pub(crate) span_trace: &'a SpanTrace,
+    #[cfg(feature = "reloadable-theme")]
+    pub(crate) theme: color_spantrace::Theme,
+}
 
 #[cfg(feature = "capture-spantrace")]
 impl fmt::Display for FormattedSpanTrace<'_> {
@@ -168,11 +172,15 @@ impl fmt::Display for FormattedSpanTrace<'_> {
         use indenter::indented;
         use indenter::Format;
 
-        if self.0.status() == SpanTraceStatus::CAPTURED {
+        if self.span_trace.status() == SpanTraceStatus::CAPTURED {
+            #[cfg(not(feature = "reloadable-theme"))]
+            let span_trace = color_spantrace::colorize(self.span_trace);
+            #[cfg(feature = "reloadable-theme")]
+            let span_trace = color_spantrace::colorize_with_theme(self.span_trace, self.theme);
+
             write!(
                 indented(f).with_format(Format::Uniform { indentation: "  " }),
-                "{}",
-                color_spantrace::colorize(self.0)
+                "{span_trace}",
             )?;
         }
 

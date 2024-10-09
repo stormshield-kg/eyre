@@ -16,6 +16,7 @@ default = ["track-caller", "capture-spantrace"]
 capture-spantrace = ["tracing-error", "color-spantrace"]
 issue-url = ["url"]
 track-caller = []
+reloadable-theme = ["arc-swap"]
 
 [dependencies]
 eyre = { version = "1.0.0", path = "../eyre" }
@@ -26,6 +27,7 @@ owo-colors = { workspace = true }
 color-spantrace = { version = "0.2", path = "../color-spantrace", optional = true }
 once_cell = { workspace = true }
 url = { version = "2.1.1", optional = true }
+arc-swap = { version = "1.7.1", optional = true }
 
 [dev-dependencies]
 tracing-subscriber = { version = "0.3.0", features = ["env-filter"] }
@@ -47,7 +49,7 @@ dev-version = false
 [[package.metadata.release.pre-release-replacements]]
 file = "CHANGELOG.md"
 search = "Unreleased"
-replace="{{version}}"
+replace = "{{version}}"
 
 [[package.metadata.release.pre-release-replacements]]
 file = "src/lib.rs"
@@ -58,25 +60,25 @@ exactly = 1
 [[package.metadata.release.pre-release-replacements]]
 file = "CHANGELOG.md"
 search = "\\.\\.\\.HEAD"
-replace="...{{tag_name}}"
+replace = "...{{tag_name}}"
 exactly = 1
 
 [[package.metadata.release.pre-release-replacements]]
 file = "CHANGELOG.md"
 search = "ReleaseDate"
-replace="{{date}}"
+replace = "{{date}}"
 
 [[package.metadata.release.pre-release-replacements]]
-file="CHANGELOG.md"
-search="<!-- next-header -->"
-replace="<!-- next-header -->\n\n## [Unreleased] - ReleaseDate"
-exactly=1
+file = "CHANGELOG.md"
+search = "<!-- next-header -->"
+replace = "<!-- next-header -->\n\n## [Unreleased] - ReleaseDate"
+exactly = 1
 
 [[package.metadata.release.pre-release-replacements]]
-file="CHANGELOG.md"
-search="<!-- next-url -->"
-replace="<!-- next-url -->\n[Unreleased]: https://github.com/eyre-rs/{{crate_name}}/compare/{{tag_name}}...HEAD"
-exactly=1
+file = "CHANGELOG.md"
+search = "<!-- next-url -->"
+replace = "<!-- next-url -->\n[Unreleased]: https://github.com/eyre-rs/{{crate_name}}/compare/{{tag_name}}...HEAD"
+exactly = 1
 
 [[example]]
 name = "color-eyre-usage"

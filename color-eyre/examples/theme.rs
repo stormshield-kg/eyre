@@ -1,12 +1,23 @@
-use color_eyre::{config::Theme, eyre::Report, owo_colors::style, Section};
+use color_eyre::{
+    config::{Theme, WrappedTheme},
+    eyre::Report,
+    owo_colors::style,
+    Section,
+};
 
 /// To experiment with theme values, edit `theme()` below and execute `cargo run --example theme`
-fn theme() -> Theme {
-    Theme::dark()
+#[allow(clippy::let_and_return)]
+fn theme() -> WrappedTheme {
+    let theme = Theme::dark()
         // ^ use `new` to derive from a blank theme, or `light` to derive from a light theme.
         // Now configure your theme (see the docs for all options):
         .line_number(style().blue())
-        .help_info_suggestion(style().red())
+        .help_info_suggestion(style().red());
+
+    #[cfg(feature = "reloadable-theme")]
+    let theme = arc_swap::ArcSwap::from_pointee(theme).into();
+
+    theme
 }
 
 #[derive(Debug, thiserror::Error)]

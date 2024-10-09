@@ -382,6 +382,13 @@ impl Frame {
     }
 }
 
+#[cfg(not(feature = "reloadable-theme"))]
+/// Type of the `color-eyre` theme
+pub type WrappedTheme = Theme;
+#[cfg(feature = "reloadable-theme")]
+/// Type of the `color-eyre` theme
+pub type WrappedTheme = Arc<arc_swap::ArcSwap<Theme>>;
+
 /// Builder for customizing the behavior of the global panic and error report hooks
 pub struct HookBuilder {
     filters: Vec<Box<FilterCallback>>,
@@ -391,7 +398,7 @@ pub struct HookBuilder {
     display_location_section: bool,
     panic_section: Option<Box<dyn Display + Send + Sync + 'static>>,
     panic_message: Option<Box<dyn PanicMessage>>,
-    theme: Theme,
+    theme: WrappedTheme,
     #[cfg(feature = "issue-url")]
     issue_url: Option<String>,
     #[cfg(feature = "issue-url")]
@@ -419,13 +426,29 @@ impl HookBuilder {
     ///     .unwrap();
     /// ```
     pub fn new() -> Self {
-        Self::blank()
+        let theme = Theme::dark();
+        #[cfg(feature = "reloadable-theme")]
+        let theme = arc_swap::ArcSwap::from_pointee(theme).into();
+        Self::with_theme(theme)
+    }
+
+    /// Construct a HookBuilder, using the provided theme.
+    pub fn with_theme(theme: WrappedTheme) -> Self {
+        Self::blank_with_theme(theme)
             .add_default_filters()
             .capture_span_trace_by_default(true)
     }
 
     /// Construct a HookBuilder with minimal features enabled
     pub fn blank() -> Self {
+        let theme = Theme::dark();
+        #[cfg(feature = "reloadable-theme")]
+        let theme = arc_swap::ArcSwap::from_pointee(theme).into();
+        Self::blank_with_theme(theme)
+    }
+
+    /// Construct a HookBuilder with minimal features enabled, using the provided theme.
+    pub fn blank_with_theme(theme: WrappedTheme) -> Self {
         HookBuilder {
             filters: vec![],
             capture_span_trace_by_default: false,
@@ -434,7 +457,7 @@ impl HookBuilder {
             display_location_section: true,
             panic_section: None,
             panic_message: None,
-            theme: Theme::dark(),
+            theme,
             #[cfg(feature = "issue-url")]
             issue_url: None,
             #[cfg(feature = "issue-url")]
@@ -447,7 +470,7 @@ impl HookBuilder {
     /// Set the global styles that `color_eyre` should use.
     ///
     /// **Tip:** You can test new styles by editing `examples/theme.rs` in the `color-eyre` repository.
-    pub fn theme(mut self, theme: Theme) -> Self {
+    pub fn theme(mut self, theme: WrappedTheme) -> Self {
         self.theme = theme;
         self
     }
@@ -687,8 +710,8 @@ impl HookBuilder {
 
     /// Create a `PanicHook` and `EyreHook` from this `HookBuilder`.
     /// This can be used if you want to combine these handlers with other handlers.
+    #[allow(clippy::clone_on_copy)]
     pub fn try_into_hooks(self) -> Result<(PanicHook, EyreHook), crate::eyre::Report> {
-        let theme = self.theme;
         #[cfg(feature = "issue-url")]
         let metadata = Arc::new(self.issue_metadata);
         let panic_hook = PanicHook {
@@ -697,10 +720,8 @@ impl HookBuilder {
             #[cfg(feature = "capture-spantrace")]
             capture_span_trace_by_default: self.capture_span_trace_by_default,
             display_env_section: self.display_env_section,
-            panic_message: self
-                .panic_message
-                .unwrap_or_else(|| Box::new(DefaultPanicMessage(theme))),
-            theme,
+            panic_message: self.panic_message,
+            theme: self.theme.clone(),
             #[cfg(feature = "issue-url")]
             issue_url: self.issue_url.clone(),
             #[cfg(feature = "issue-url")]
@@ -716,7 +737,7 @@ impl HookBuilder {
             display_env_section: self.display_env_section,
             #[cfg(feature = "track-caller")]
             display_location_section: self.display_location_section,
-            theme,
+            theme: self.theme,
             #[cfg(feature = "issue-url")]
             issue_url: self.issue_url,
             #[cfg(feature = "issue-url")]
@@ -725,8 +746,11 @@ impl HookBuilder {
             issue_filter: self.issue_filter,
         };
 
-        #[cfg(feature = "capture-spantrace")]
-        eyre::WrapErr::wrap_err(color_spantrace::set_theme(self.theme.into()), "could not set the provided `Theme` via `color_spantrace::set_theme` globally as another was already set")?;
+        #[cfg(all(feature = "capture-spantrace", not(feature = "reloadable-theme")))]
+        {
+            use eyre::WrapErr;
+            color_spantrace::set_theme(self.theme.into()).wrap_err("could not set the provided `Theme` via `color_spantrace::set_theme` globally as another was already set")?;
+        }
 
         Ok((panic_hook, eyre_hook))
     }
@@ -787,36 +811,33 @@ fn eyre_frame_filters(frames: &mut Vec<&Frame>) {
     });
 }
 
-struct DefaultPanicMessage(Theme);
+fn default_panic_message(
+    pi: &std::panic::PanicInfo<'_>,
+    f: &mut fmt::Formatter<'_>,
+    theme: &Theme,
+) -> fmt::Result {
+    writeln!(
+        f,
+        "{}",
+        "The application panicked (crashed).".style(theme.panic_header)
+    )?;
 
-impl PanicMessage for DefaultPanicMessage {
-    fn display(&self, pi: &std::panic::PanicInfo<'_>, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // XXX is my assumption correct that this function is guaranteed to only run after `color_eyre` was setup successfully (including setting `THEME`), and that therefore the following line will never panic? Otherwise, we could return `fmt::Error`, but if the above is true, I like `unwrap` + a comment why this never fails better
-        let theme = &self.0;
+    // Print panic message.
+    let payload = pi
+        .payload()
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| pi.payload().downcast_ref::<&str>().cloned())
+        .unwrap_or("<non string panic payload>");
 
-        writeln!(
-            f,
-            "{}",
-            "The application panicked (crashed).".style(theme.panic_header)
-        )?;
+    write!(f, "Message:  ")?;
+    writeln!(f, "{}", payload.style(theme.panic_message))?;
 
-        // Print panic message.
-        let payload = pi
-            .payload()
-            .downcast_ref::<String>()
-            .map(String::as_str)
-            .or_else(|| pi.payload().downcast_ref::<&str>().cloned())
-            .unwrap_or("<non string panic payload>");
+    // If known, print panic location.
+    write!(f, "Location: ")?;
+    write!(f, "{}", crate::fmt::LocationSection(pi.location(), *theme))?;
 
-        write!(f, "Message:  ")?;
-        writeln!(f, "{}", payload.style(theme.panic_message))?;
-
-        // If known, print panic location.
-        write!(f, "Location: ")?;
-        write!(f, "{}", crate::fmt::LocationSection(pi.location(), *theme))?;
-
-        Ok(())
-    }
+    Ok(())
 }
 
 /// A type representing an error report for a panic.
@@ -829,7 +850,15 @@ pub struct PanicReport<'a> {
 }
 
 fn print_panic_info(report: &PanicReport<'_>, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    report.hook.panic_message.display(report.panic_info, f)?;
+    let theme = &report.hook.theme;
+    #[cfg(feature = "reloadable-theme")]
+    let theme = &**theme.load();
+    let theme = *theme;
+
+    match &report.hook.panic_message {
+        Some(panic_message) => panic_message.display(report.panic_info, f)?,
+        None => default_panic_message(report.panic_info, f, &theme)?,
+    };
 
     let v = panic_verbosity();
     let capture_bt = v != Verbosity::Minimal;
@@ -843,16 +872,18 @@ fn print_panic_info(report: &PanicReport<'_>, f: &mut fmt::Formatter<'_>) -> fmt
     #[cfg(feature = "capture-spantrace")]
     {
         if let Some(span_trace) = report.span_trace.as_ref() {
-            write!(
-                &mut separated.ready(),
-                "{}",
-                crate::writers::FormattedSpanTrace(span_trace)
-            )?;
+            let span_trace = crate::writers::FormattedSpanTrace {
+                span_trace,
+                #[cfg(feature = "reloadable-theme")]
+                theme: theme.into(),
+            };
+
+            write!(&mut separated.ready(), "{}", span_trace)?;
         }
     }
 
     if let Some(bt) = report.backtrace.as_ref() {
-        let fmted_bt = report.hook.format_backtrace(bt);
+        let fmted_bt = PanicHook::format_backtrace(bt, &report.hook.filters, theme);
         write!(
             indented(&mut separated.ready()).with_format(Format::Uniform { indentation: "  " }),
             "{}",
@@ -909,8 +940,8 @@ impl fmt::Display for PanicReport<'_> {
 pub struct PanicHook {
     filters: Arc<[Box<FilterCallback>]>,
     section: Option<Box<dyn Display + Send + Sync + 'static>>,
-    panic_message: Box<dyn PanicMessage>,
-    theme: Theme,
+    panic_message: Option<Box<dyn PanicMessage>>,
+    theme: WrappedTheme,
     #[cfg(feature = "capture-spantrace")]
     capture_span_trace_by_default: bool,
     display_env_section: bool,
@@ -924,13 +955,14 @@ pub struct PanicHook {
 
 impl PanicHook {
     pub(crate) fn format_backtrace<'a>(
-        &'a self,
         trace: &'a backtrace::Backtrace,
+        filters: &'a [Box<FilterCallback>],
+        theme: Theme,
     ) -> BacktraceFormatter<'a> {
         BacktraceFormatter {
-            filters: &self.filters,
+            filters,
             inner: trace,
-            theme: self.theme,
+            theme,
         }
     }
 
@@ -995,7 +1027,7 @@ pub struct EyreHook {
     display_env_section: bool,
     #[cfg(feature = "track-caller")]
     display_location_section: bool,
-    theme: Theme,
+    theme: WrappedTheme,
     #[cfg(feature = "issue-url")]
     issue_url: Option<String>,
     #[cfg(feature = "issue-url")]
@@ -1029,6 +1061,11 @@ impl EyreHook {
             None
         };
 
+        let theme = &self.theme;
+        #[cfg(feature = "reloadable-theme")]
+        let theme = &**theme.load();
+        let theme = *theme;
+
         crate::Handler {
             filters: self.filters.clone(),
             backtrace,
@@ -1045,7 +1082,7 @@ impl EyreHook {
             issue_metadata: self.issue_metadata.clone(),
             #[cfg(feature = "issue-url")]
             issue_filter: self.issue_filter.clone(),
-            theme: self.theme,
+            theme,
             #[cfg(feature = "track-caller")]
             location: None,
         }

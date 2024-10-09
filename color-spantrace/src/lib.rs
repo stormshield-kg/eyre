@@ -188,10 +188,30 @@ pub fn set_theme(theme: Theme) -> Result<(), InstallThemeError> {
     THEME.set(theme).map_err(|_| InstallThemeError)
 }
 
+/// Display a [`SpanTrace`] with colors and source, using the provided theme.
+///
+/// This function returns an `impl Display` type which can be then used in place of the original
+/// SpanTrace when writing it to the screen or buffer.
+///
+/// # Example
+///
+/// ```rust
+/// use color_spantrace::Theme;
+/// use tracing_error::SpanTrace;
+///
+/// let span_trace = SpanTrace::capture();
+/// println!("{}", color_spantrace::colorize_with_theme(&span_trace, Theme::dark()));
+/// ```
+///
+/// [`SpanTrace`]: https://docs.rs/tracing-error/*/tracing_error/struct.SpanTrace.html
+pub fn colorize_with_theme(span_trace: &SpanTrace, theme: Theme) -> impl fmt::Display + '_ {
+    ColorSpanTrace { span_trace, theme }
+}
+
 /// Display a [`SpanTrace`] with colors and source
 ///
 /// This function returns an `impl Display` type which can be then used in place of the original
-/// SpanTrace when writing it too the screen or buffer.
+/// SpanTrace when writing it to the screen or buffer.
 ///
 /// # Example
 ///
