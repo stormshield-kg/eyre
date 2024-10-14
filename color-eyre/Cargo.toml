@@ -19,7 +19,7 @@ track-caller = []
 reloadable-theme = ["arc-swap"]
 
 [dependencies]
-eyre = { version = "1.0.0", path = "../eyre" }
+eyre = { version = "1.0.0", path = "../eyre", default-features = false }
 tracing-error = { version = "0.2.0", optional = true }
 backtrace = { version = "0.3.59" }
 indenter = { workspace = true }
